@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import PageScaffold from '../components/PageScaffold.vue'
 import Chip from '../components/Chip.vue'
 import SliderCard from '../components/SliderCard.vue'
@@ -11,12 +11,14 @@ import { usePlayerStore } from '../stores/player'
 import { useRecorderStore } from '../stores/recorder'
 import { renderFrame, framePixels, frameStats } from '../canvas/RecRenderer'
 
-const router = useRouter()
 const player = usePlayerStore()
 const rec = useRecorderStore()
 const canvas = ref<HTMLCanvasElement | null>(null)
 const levels = ref<string[]>([])
 const width = ref(960), height = ref(540)
+const cover = ref<HTMLImageElement | null>(null)
+const overlaySrc = ref('')
+const wasPlaying = ref(false)
 
 const ratios = ['16:9', '9:16', '1:1', '4:3']
 const styles = [{ k: 'CLASSIC', n: '经典' }, { k: 'DISC', n: '圆盘' }]
@@ -27,12 +29,12 @@ function ratioSize() {
   const [a, b] = rec.config.ratio.split(':').map(Number)
   const h = rec.config.resolution
   height.value = h
-  width.value = Math.round((h * a) / b)
+  width.value = Math.round((h * a) / b / 2) * 2
   if (canvas.value) { canvas.value.width = width.value; canvas.value.height = height.value }
 }
 
 /** 页面上的 canvas 就是 RecRenderer 输出，录制时逐帧把同一张 canvas 的像素推给 Rust。 */
-function repaint() {
+function repaint(positionMs?: number, force = false) {
   if (!canvas.value) return
   const song = player.current
   const durationMs = song?.durationMs || 240000
@@ -41,16 +43,46 @@ function repaint() {
     lines: player.lyric.lines.map((l) => l.text),
     focus: Math.min(2, Math.max(0, player.lyric.lines.length - 1)),
     config: rec.config,
-    positionMs: Math.floor(durationMs / 2), durationMs,
-    accent: player.accent, cover: null,
+    positionMs: positionMs ?? Math.floor(durationMs / 2), durationMs,
+    accent: player.accent, cover: cover.value, force,
   })
   canvas.value.dataset.bg = rec.config.background.toLowerCase()
+}
+
+/** 雨雪参考文件原样加载运行（逐字不改），叠在封面底上，不整屏替换。 */
+async function loadOverlay() {
+  const mode = rec.config.background
+  if (mode !== 'RAIN' && mode !== 'SNOW') { overlaySrc.value = ''; return }
+  const name = mode === 'RAIN' ? 'resources/reference/index.html' : 'resources/reference/sn.html'
+  try {
+    const p = await ipc.resourcePath(name)
+    overlaySrc.value = convertFileSrc(p)
+  } catch { overlaySrc.value = '' }
+}
+
+async function loadCover() {
+  const url = player.current?.picUrl
+  if (!url) { cover.value = null; return }
+  const img = new Image()
+  img.crossOrigin = 'anonymous'
+  img.onload = () => { cover.value = img; repaint() }
+  img.src = url
+}
+
+async function loadLyric() {
+  const song = player.current
+  if (!song) return
+  try {
+    player.lyric = (song.source === 'LOCAL' && song.localPath)
+      ? await ipc.localLyric(song.localPath)
+      : await ipc.getLyric(song.id)
+  } catch { /* 暂无歌词，可点击重新加载 */ }
 }
 
 let debounce: number | null = null
 watch(() => ({ ...rec.config }), () => {
   if (debounce) window.clearTimeout(debounce)
-  debounce = window.setTimeout(repaint, 120) // 配置防抖 120ms
+  debounce = window.setTimeout(() => { void loadOverlay(); repaint() }, 120) // 配置防抖 120ms
 }, { deep: true })
 
 async function probe() {
@@ -71,9 +103,12 @@ async function start() {
   try {
     const ch = progressChannel((p) => {
       rec.onProgress(p)
-      // 同一张 canvas 的像素推给编码端，不存在第二套预览布局。
-      if (canvas.value && p.phase === 3) {
-        void ipc.recPushFrame(framePixels(canvas.value), Math.round((p.frame / Math.max(1, p.total)) * 1000)).catch(() => {})
+      if (p.phase === 3 && canvas.value) {
+        // Rust 每帧发一条进度：按帧号重绘同一张 canvas，再把该帧像素推回编码端。
+        const positionMs = Math.round((p.frame / Math.max(1, rec.config.fps)) * 1000)
+        repaint(positionMs, true)
+        const ptsUs = Math.round((p.frame * 1_000_000) / Math.max(1, rec.config.fps))
+        void ipc.recPushFrame(framePixels(canvas.value), ptsUs).catch(() => {})
       }
     })
     await ipc.recStart({ ...rec.config }, ch)
@@ -83,15 +118,24 @@ async function start() {
     await loadTasks()
   } catch (e) {
     rec.running = false
-    toast.error('生成失败，请重试')
+    toast.error(String(e).includes('取消') ? '已取消' : '生成失败，请换档或重试')
   }
 }
 
 async function cancel() { await ipc.recCancel('current').catch(() => {}); rec.reset(); toast.show('已取消') }
 async function loadTasks() { try { rec.tasks = await ipc.recList() } catch { /* 离线 */ } }
 
-onMounted(() => { ratioSize(); repaint(); void probe(); void loadTasks() })
-onUnmounted(() => { if (debounce) window.clearTimeout(debounce) })
+onMounted(async () => {
+  wasPlaying.value = player.playing
+  if (wasPlaying.value) await ipc.playerPause().catch(() => {})
+  ratioSize()
+  await Promise.all([loadCover(), loadLyric(), loadOverlay(), probe(), loadTasks()])
+  repaint()
+})
+onUnmounted(async () => {
+  if (debounce) window.clearTimeout(debounce)
+  if (wasPlaying.value) await ipc.playerPlay().catch(() => {})
+})
 </script>
 
 <template>
@@ -101,6 +145,7 @@ onUnmounted(() => { if (debounce) window.clearTimeout(debounce) })
       <section class="preview">
         <div class="frame-wrap">
           <canvas ref="canvas" class="frame" :width="width" :height="height"></canvas>
+          <iframe v-if="overlaySrc" class="overlay" :src="overlaySrc" title="雨雪特效参考实现" frameborder="0"></iframe>
         </div>
         <p class="hint">预览固定 = 歌曲时长一半那一帧 · 与成品同源（RecRenderer.ts）</p>
       </section>
@@ -166,8 +211,9 @@ onUnmounted(() => { if (debounce) window.clearTimeout(debounce) })
 <style scoped>
 .rec { display: flex; gap: 24px; height: 100%; min-height: 0; }
 .preview { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
-.frame-wrap { max-height: 34%; max-width: 100%; border: 1px solid var(--go-line); border-radius: 12px; overflow: hidden; background: var(--go-bg); }
+.frame-wrap { position: relative; max-height: 34%; max-width: 100%; border: 1px solid var(--go-line); border-radius: 12px; overflow: hidden; background: var(--go-bg); line-height: 0; }
 .frame { display: block; max-width: 100%; max-height: 240px; width: auto; height: auto; border-radius: 12px; }
+.overlay { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; pointer-events: none; mix-blend-mode: screen; }
 .hint { margin: 0; font-size: 12px; color: var(--go-text-3); }
 .config { width: 420px; flex: none; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding-bottom: 32px; }
 .chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; max-width: 300px; }

@@ -293,16 +293,16 @@ fn version_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     parts(a).cmp(&parts(b))
 }
 
-pub async fn check_update(state: &AppState, force: bool) -> Result<UpdateDoc, String> {
+pub async fn check_update(client: &reqwest::Client, force: bool) -> Result<UpdateDoc, String> {
     let api = format!("https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=20");
     let proxy = format!("https://gh-proxy.com/{api}");
     let proxy_v6 = format!("https://v6.gh-proxy.com/{api}");
     info!(target: "gomusic::update", "check force={} via gh-proxy + v6 + direct", force);
 
     let (p, v6, d) = tokio::join!(
-        release_candidates(&state.client, &proxy, "gh-proxy.com"),
-        release_candidates(&state.client, &proxy_v6, "v6.gh-proxy.com"),
-        release_candidates(&state.client, &api, "api.github.com"),
+        release_candidates(client, &proxy, "gh-proxy.com"),
+        release_candidates(client, &proxy_v6, "v6.gh-proxy.com"),
+        release_candidates(client, &api, "api.github.com"),
     );
     let candidates: Vec<(&str, Vec<Value>)> = [
         ("gh-proxy.com", p),

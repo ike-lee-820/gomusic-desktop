@@ -1,14 +1,28 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUpdateStore } from '../stores/update'
 import { ipc } from '../api/ipc'
+import { toast } from '../composables/overlay'
 
 const update = useUpdateStore()
 const router = useRouter()
+const installing = ref(false)
 
 async function open(url?: string | null) {
   if (!url) return
   try { await ipc.openExternal(url) } catch { /* 加速失败时可用直连按钮 */ }
+}
+
+async function install() {
+  if (installing.value) return
+  installing.value = true
+  try {
+    await ipc.updateInstall()
+    toast.show('更新已下载并安装，重启后生效')
+  } catch (e) {
+    toast.error('签名更新不可用，请用加速或直连下载安装包')
+  } finally { installing.value = false }
 }
 </script>
 
@@ -21,7 +35,8 @@ async function open(url?: string | null) {
     </div>
     <div class="actions">
       <button class="primary" @click="router.push('/update-doc')">查看更新说明</button>
-      <button v-if="update.latest?.downloadUrl" @click="open(update.latest?.downloadUrl)">下载更新（加速）</button>
+      <button :disabled="installing" @click="install">{{ installing ? '安装中…' : '签名安装' }}</button>
+      <button v-if="update.latest?.downloadUrl" @click="open(update.latest?.downloadUrl)">下载（加速）</button>
       <button v-if="update.latest?.fallbackUrl" class="link" @click="open(update.latest?.fallbackUrl)">直连</button>
     </div>
   </div>
@@ -47,6 +62,7 @@ async function open(url?: string | null) {
   border: 1px solid var(--go-line); color: var(--go-text-2); font-size: 12px;
 }
 .actions button:hover { background: var(--go-surface); color: var(--go-text); }
+.actions button:disabled { opacity: .45; cursor: default; }
 .actions .primary { background: var(--go-accent-8); color: var(--go-accent); border-color: transparent; }
 .actions .link { border-color: transparent; color: var(--go-text-3); }
 </style>

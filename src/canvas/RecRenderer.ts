@@ -14,6 +14,8 @@ export interface FrameOptions {
   durationMs: number
   accent: string
   cover: HTMLImageElement | null
+  /** 录制逐帧：每帧都真实重绘（预览仍按签名复用静止帧） */
+  force?: boolean
 }
 
 let lastSignature = ''
@@ -77,7 +79,7 @@ export function renderArcFrame(
 
 /** 唯一帧渲染入口；返回 ImageData 供预览与 rec_push_frame 共用。 */
 export function renderFrame(canvas: HTMLCanvasElement, o: FrameOptions): ImageData {
-  const sig = frameSignature(o)
+  const sig = o.force ? `${frameSignature(o)}|f${o.positionMs}` : frameSignature(o)
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) throw new Error('Canvas2D unavailable')
   if (sig === lastSignature) {

@@ -10,26 +10,53 @@ rust-version = "1.90"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-http = "2"
+tauri-plugin-store = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-window-state = "2"
+tauri-plugin-log = "2"
+tauri-plugin-cli = "2"
+tauri-plugin-updater = "2"
+
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "fs", "time", "macros"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "gzip", "brotli", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "gzip", "brotli", "json", "blocking", "stream"] }
 thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
 dirs = "6"
 
-# 后续接入（见 README「与文档的差异」）：
-# symphonia / cpal / lofty / walkdir / image / rustfft / realfft /
-# rusqlite / souvlaki / keyring / ffmpeg-next / tauri-plugin-{sql,updater,
-# single-instance,cli,global-shortcut,autostart}
+# §7 音频链路：解码 → EQ → Surround → 淡变/限幅 → 输出
+symphonia = { version = "0.5", features = ["all-codecs", "all-formats"] }
+cpal = "0.15"
+
+# §4.6 本地元数据与歌词
+lofty = "0.22"
+walkdir = "2"
+encoding_rs = "0.8"
+
+# §7 频谱 / §8 帧编码 / §6.11 纯 Rust 编码路径
+rustfft = "6"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+# §9 SQLite：历史 + 录制快照 + 缓存索引
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# §3 系统媒体键：SMTC / NowPlaying / MPRIS
+souvlaki = "0.7"
+
+uuid = { version = "1", features = ["v4"] }
+futures-util = "0.3"
 
 [features]
 default = ["custom-protocol"]

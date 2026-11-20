@@ -1,4 +1,4 @@
-/* §6.1 设计令牌：1dp = 1 CSS px @100%，仅横屏 */
+/* §6.1 设计令牌：1dp = 1 CSS px @100%，仅横屏；内置思源可变字库（Vite 打包，离线可用） */
 :root {
   --go-bg: #0b0d10;
   --go-surface: #14171c;
@@ -13,8 +13,9 @@
   --go-warn: #e0a33e;
   --go-danger: #e5534b;
 
-  --go-font-ui: 'SourceHanSansVF', system-ui, sans-serif;
-  --go-font-lyric: 'SourceHanSerifVF', serif;
+  /* 四选一：系统默认 / 思源宋体 VF / 思源黑体 VF / 导入（运行时切换，不重启） */
+  --go-font-ui: 'Noto Sans SC Variable', system-ui, sans-serif;
+  --go-font-lyric: 'Noto Serif SC Variable', 'Noto Serif SC', serif;
   --go-wght: 400;
 
   --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
@@ -25,4 +26,12 @@
 
   --topbar-h: 40px;
   --navrail-w: 76px;
+}
+
+/* 可变字体：wght 100–900，设置页与录制页共用同一滑杆 */
+html, body, #app {
+  font-family: var(--go-font-ui);
+  font-variation-settings: 'wght' var(--go-wght);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
 }

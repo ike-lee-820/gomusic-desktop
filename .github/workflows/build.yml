@@ -35,14 +35,26 @@ jobs:
       - name: 安装 Linux 系统依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf pkg-config
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf pkg-config libasound2-dev libdbus-1-dev
       - name: 准备 frontendDist
         run: |
           mkdir -p dist
           printf '<!doctype html><title>GoMusic</title>' > dist/index.html
       - uses: dtolnay/rust-toolchain@stable
       - name: cargo check
-        run: cargo check --manifest-path src-tauri/Cargo.toml
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo check --manifest-path src-tauri/Cargo.toml 2>&1 | tee cargo-check.log
+      - name: 暴露编译错误为 annotation
+        if: failure()
+        shell: bash
+        run: |
+          grep -E 'error\[|^error:|could not compile|no matching package|failed to (run|build|download)|cannot find' cargo-check.log | head -45 | while IFS= read -r line; do
+            printf '::error::%s\n' "$(printf '%s' "$line" | cut -c1-500 | tr '\n' ' ')"
+          done
+          true
+
 
   verify:
     name: 配置 / 凭据 / 参考资源校验
