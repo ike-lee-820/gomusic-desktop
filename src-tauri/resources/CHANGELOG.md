@@ -1,10 +1,8 @@
 ## 新增
 
-- 自动编排版本号（yy.mm.次数）、构建号单调不回退。
-- 每次发布自动产出各平台安装包并上传 GitHub Release。
-- 应用启动自动检查更新，默认 gh-proxy 加速。
+- 自动版本号编排、六平台产物与启动更新检查
+- GoMusic desktop baseline (Tauri 2 + Vue 3, landscape only)
 
 ## 修复
 
-- gh-proxy 被 Cloudflare WAF 拦截或返回 403 时自动回退直连。
-- 更新检查失败不再抛出英文堆栈，改为离线更新说明。
+- gh-proxy 403 自动回退直连并保留离线更新说明
