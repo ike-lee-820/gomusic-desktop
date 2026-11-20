@@ -12,7 +12,7 @@ Rust + Tauri 2 + Vue 3 桌面客户端，对应 `docs/GoMusic-电脑端开发文
 2. **改写全部版本文件**：`package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src/version.ts`、`version.json`；版本号在导航条、关于页、Rust User-Agent 里同步生效。
 3. **生成更新文档**：只含「新增」「修复」两栏，简洁明了。`docs/release-notes/<版本>.md`、`src-tauri/resources/CHANGELOG.md`、GitHub Release 正文**三者逐字一致**，不含排错、核验、构建过程。
 4. **打 tag + 建 Release**：`v<版本>`，正文即归档 md。
-5. **真产物**：六平台 `tauri build` 产出安装包，上传到 GitHub Release 的 Assets，同时作为 Actions Artifact 留存，并附按平台命名的 `SHA256SUMS-<平台>.txt`。产物包括 `.exe` / `.msi` / `.dmg` / `.deb` / `.rpm` / `.AppImage`。
+5. **真产物**：五个平台 `tauri build` 产出安装包（Windows x64/ARM64、macOS arm64、Linux amd64/arm64），上传到 GitHub Release 的 Assets，同时作为 Actions Artifact 留存，并附按平台命名的 `SHA256SUMS-<平台>.txt`。产物包括 `.exe` / `.msi` / `.dmg` / `.deb` / `.rpm` / `.AppImage`。
 
 手动触发时可填 `notes` 自定义更新说明（仍会被收敛为只保留「新增 / 修复」两栏）。版本号由 `scripts/bump-version.mjs` 统一编排，请勿手工改版本文件。
 
@@ -56,7 +56,7 @@ src-tauri/                        Rust 宿主：commands / net / audio / dsp / l
 ## CI
 
 - `build.yml`：前端 `vite build`、Rust `cargo check`、配置/凭据/参考资源校验、版本文件一致性检查。
-- `release.yml`：push 到 `main` 触发，先编排版本并建 Release，再按矩阵构建并上传安装包。ARM runner 与旧 macOS runner 标记为实验性，失败不影响整体发布。
+- `release.yml`：push 到 `main` 触发，先编排版本并建 Release，再按矩阵构建并上传安装包。ARM runner 标记为实验性，失败不影响整体发布。
 
 ## 与文档的差异（诚实清单）
 
