@@ -1,0 +1,58 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: ${{ matrix.platform }} / ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: windows-latest,   arch: x64,   target: 'x86_64-pc-windows-msvc',    args: '--target x86_64-pc-windows-msvc' }
+          - { platform: windows-11-arm,   arch: arm64, target: 'aarch64-pc-windows-msvc',   args: '--target aarch64-pc-windows-msvc' }
+          - { platform: macos-latest,     arch: arm64, target: 'aarch64-apple-darwin',      args: '--target aarch64-apple-darwin' }
+          - { platform: macos-13,         arch: x64,   target: 'x86_64-apple-darwin',      args: '--target x86_64-apple-darwin' }
+          - { platform: ubuntu-24.04,     arch: amd64, target: 'x86_64-unknown-linux-gnu', args: '--target x86_64-unknown-linux-gnu' }
+          - { platform: ubuntu-24.04-arm, arch: arm64, target: 'aarch64-unknown-linux-gnu', args: '--target aarch64-unknown-linux-gnu' }
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 安装 Linux 系统依赖
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: npm install --no-audit --no-fund
+      - name: 生成全平台图标集
+        run: |
+          npx tauri icon src-tauri/icons/icon.png
+          node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.bundle.icon=['icons/32x32.png','icons/128x128.png','icons/icon.icns','icons/icon.ico'];fs.writeFileSync(p,JSON.stringify(j,null,2))"
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'GoMusic ${{ github.ref_name }}'
+          releaseDraft: true
+          args: ${{ matrix.args }}
+      - name: 断言 Linux arm64 包架构
+        if: matrix.arch == 'arm64' && runner.os == 'Linux'
+        run: |
+          DEB=$(find src-tauri/target -name '*.deb' | head -1)
+          test -n "$DEB" || exit 1
+          test "$(dpkg-deb -f "$DEB" Architecture)" = "arm64" || exit 1

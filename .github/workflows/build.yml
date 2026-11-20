@@ -1,0 +1,66 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: 前端构建 (Vite + Vue 3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - name: 类型检查（不阻断基线）
+        run: npm run typecheck || echo "::warning::typecheck 有告警，详见日志"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+
+  rust-check:
+    name: Rust 编译检查 (Tauri 2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装 Linux 系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf pkg-config
+      - name: 准备 frontendDist
+        run: |
+          mkdir -p dist
+          printf '<!doctype html><title>GoMusic</title>' > dist/index.html
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+  verify:
+    name: 配置 / 凭据 / 参考资源校验
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: JSON 配置合法性
+        run: |
+          node -e "for (const f of ['package.json','src-tauri/tauri.conf.json','src-tauri/capabilities/default.json']) { JSON.parse(require('fs').readFileSync(f,'utf8')); console.log('ok', f) }"
+      - name: 凭据泄漏扫描
+        run: |
+          if git grep -nE 'ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}' -- . ':!docs' ; then
+            echo "::error::仓库中发现凭据"; exit 1
+          fi
+          echo "未发现凭据"
+      - name: 参考文件校验和（缺失只告警）
+        run: |
+          cd src-tauri/resources/reference
+          if [ -f SHA256SUMS ]; then
+            sha256sum -c SHA256SUMS || echo "::warning::部分参考资源缺失或与上游不一致，见 reference/README.md"
+          fi
