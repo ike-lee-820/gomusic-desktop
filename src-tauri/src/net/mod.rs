@@ -2,7 +2,7 @@
 use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
-use crate::models::{ArtistDesc, Lyric, LyricLine, SearchResult, Song, SongUrl, Topic, Section};
+use crate::models::{ArtistDesc, Lyric, LyricLine, SearchResult, Song, SongUrl, Topic, Section, UpdateDoc, OFFLINE_CHANGELOG};
 use crate::state::AppState;
 
 /// 完整档位表，相邻回退，不跳档。
@@ -243,4 +243,127 @@ pub async fn translate(state: &AppState, text: &str, from: &str, to: &str) -> Re
         .send().await.map_err(|e| e.to_string())?
         .json().await.map_err(|e| e.to_string())?;
     Ok(as_text(pick(&body, &["translation", "data", "result"])))
+}
+
+// ── 更新检查（§4.4）：默认 gh-proxy 加速，403/WAF/非 JSON 自动回退直连 ──────
+
+/// 桌面端独立仓库，不复用手机端 tag（§10）。
+pub const GITHUB_REPO: &str = "ike-lee-820/gomusic-desktop";
+
+fn client_ua() -> String { format!("GoMusicDesktop/{}", env!("CARGO_PKG_VERSION")) }
+
+/// 三个候选并发取；Cloudflare WAF 的 403 是 HTML，JSON 解析失败即丢弃，不把英文堆栈抛给界面。
+async fn release_candidates(client: &reqwest::Client, url: &str, source: &str) -> Option<Vec<Value>> {
+    let resp = match client
+        .get(url)
+        .header("User-Agent", client_ua())
+        .header("Accept", "application/vnd.github+json")
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => r,
+        Ok(r) => {
+            warn!(target: "gomusic::update", "{} -> http {} (回退直连)", source, r.status());
+            return None
+        }
+        Err(e) => {
+            warn!(target: "gomusic::update", "{} -> {} (回退直连)", source, e);
+            return None
+        }
+    };
+    let text = resp.text().await.ok()?;
+    let parsed: Value = serde_json::from_str(&text).ok()?;
+    parsed.as_array().cloned()
+}
+
+fn looks_like_markdown(s: &str) -> bool {
+    s.contains('#') || s.contains("- ") || s.contains('新增') || s.contains('修复')
+}
+
+/// yy.mm.次数 数值比较，不按字符串字典序。
+fn version_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    fn parts(s: &str) -> [i64; 3] {
+        let mut out = [0i64; 3];
+        for (i, p) in s.trim_start_matches('v').split('.').take(3).enumerate() {
+            out[i] = p.parse().unwrap_or(0);
+        }
+        out
+    }
+    parts(a).cmp(&parts(b))
+}
+
+pub async fn check_update(state: &AppState, force: bool) -> Result<UpdateDoc, String> {
+    let api = format!("https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=20");
+    let proxy = format!("https://gh-proxy.com/{api}");
+    let proxy_v6 = format!("https://v6.gh-proxy.com/{api}");
+    info!(target: "gomusic::update", "check force={} via gh-proxy + v6 + direct", force);
+
+    let (p, v6, d) = tokio::join!(
+        release_candidates(&state.client, &proxy, "gh-proxy.com"),
+        release_candidates(&state.client, &proxy_v6, "v6.gh-proxy.com"),
+        release_candidates(&state.client, &api, "api.github.com"),
+    );
+    let candidates: Vec<(&str, Vec<Value>)> = [
+        ("gh-proxy.com", p),
+        ("v6.gh-proxy.com", v6),
+        ("api.github.com", d),
+    ]
+    .into_iter()
+    .filter_map(|(n, v)| v.map(|v| (n, v)))
+    .collect();
+
+    // 按首个 release 的 body 长度取最完整；短于最长 90% 或不像 Markdown 的不采用。
+    let lens: Vec<usize> = candidates
+        .iter()
+        .map(|(_, v)| v.first().and_then(|r| r.get("body")).and_then(Value::as_str).unwrap_or("").len())
+        .collect();
+    let max_len = lens.iter().copied().max().unwrap_or(0);
+    let mut best: Option<(&str, &Vec<Value>, usize)> = None;
+    for (i, (name, list)) in candidates.iter().enumerate() {
+        if max_len == 0 || lens[i] * 10 < max_len * 9 { continue }
+        if let Some(body) = list.first().and_then(|r| r.get("body")).and_then(Value::as_str) {
+            if !looks_like_markdown(body) { continue }
+        }
+        if best.map_or(true, |(_, _, l)| lens[i] > l) {
+            best = Some((*name, list, lens[i]));
+        }
+    }
+
+    if let Some((source, list, _)) = best {
+        if let Some(r) = list.first() {
+            let version = r.get("tag_name").and_then(Value::as_str).unwrap_or("")
+                .trim_start_matches('v').to_string();
+            let body = r.get("body").and_then(Value::as_str).unwrap_or("").to_string();
+            let published_at = r.get("published_at").and_then(Value::as_str).map(str::to_string);
+            let has_update = version_cmp(&version, env!("CARGO_PKG_VERSION")) == std::cmp::Ordering::Greater;
+            let asset_url = r.get("assets").and_then(Value::as_array).and_then(|a| {
+                a.iter().find(|x| {
+                    x.get("name").and_then(Value::as_str).map(|n| {
+                        let n = n.to_ascii_lowercase();
+                        n.ends_with(".exe") || n.ends_with(".msi") || n.ends_with(".dmg")
+                            || n.ends_with(".deb") || n.ends_with(".appimage") || n.ends_with(".rpm")
+                    }).unwrap_or(false)
+                }).or_else(|| a.first())
+            })
+            .and_then(|x| x.get("browser_download_url"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+            // 下载默认走 gh-proxy.com/github.com 加速；同时保留直连兜底。
+            let download_url = asset_url.as_ref().map(|u| format!("https://gh-proxy.com/{u}"));
+            info!(target: "gomusic::update", "source={} version={} hasUpdate={}", source, version, has_update);
+            return Ok(UpdateDoc {
+                version, body, has_update, download_url,
+                fallback_url: asset_url, published_at,
+            })
+        }
+    }
+
+    // 全部候选不可用（含 Cloudflare 403）：离线内置 CHANGELOG，界面照常可用。
+    warn!(target: "gomusic::update", "all candidates unavailable -> offline changelog");
+    Ok(UpdateDoc {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        body: OFFLINE_CHANGELOG.to_string(),
+        ..Default::default()
+    })
 }
