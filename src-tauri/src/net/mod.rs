@@ -278,7 +278,7 @@ async fn release_candidates(client: &reqwest::Client, url: &str, source: &str) -
 }
 
 fn looks_like_markdown(s: &str) -> bool {
-    s.contains('#') || s.contains("- ") || s.contains('新增') || s.contains('修复')
+    s.contains('#') || s.contains("- ") || s.contains("新增") || s.contains("修复")
 }
 
 /// yy.mm.次数 数值比较，不按字符串字典序。
