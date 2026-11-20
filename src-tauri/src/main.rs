@@ -13,11 +13,25 @@ mod state;
 mod sys;
 
 use state::AppState;
+use tauri::{Emitter, Manager};
 
 fn main() {
     let state = AppState::new().expect("failed to initialise GoMusic state");
 
     tauri::Builder::default()
+        .setup(|app| {
+            // 应用启动自动检查更新：默认 gh-proxy 加速，403/WAF 自动回退直连。
+            // 检查在 Rust 侧进行，凭据不进 JS；结果以事件广播，窗口最小化也能收到。
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Ok(st) = AppState::new() {
+                    if let Ok(doc) = net::check_update(&st, false).await {
+                        let _ = handle.emit("update://available", &doc);
+                    }
+                }
+            });
+            Ok(())
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())

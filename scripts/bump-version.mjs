@@ -44,15 +44,26 @@ const prefix = `${parts.year.slice(2)}.${parts.month}`
 let maxN = 0
 let maxBuild = 0
 let lastTag = ''
+let samePrefixTag = ''
 for (const t of tags) {
   const m = /^v(\d{2})\.(\d{2})\.(\d+)$/.exec(t.name || '')
   if (!m) continue
   const n = Number(m[3])
-  if (`${m[1]}.${m[2]}` === prefix) maxN = Math.max(maxN, n)
+  const isSameMonth = `${m[1]}.${m[2]}` === prefix
+  if (isSameMonth) {
+    if (n > maxN) { maxN = n; samePrefixTag = t.name }
+  }
   if (n >= maxBuild) { maxBuild = n; lastTag = t.name }
 }
+// 换月后 range 从上月最后一个 tag 起算，避免把基线历史塞进本次说明。
+if (samePrefixTag) lastTag = samePrefixTag
 
-const version = `${prefix}.${maxN + 1}`
+let next = maxN + 1
+let current = ''
+try { current = JSON.parse(fs.readFileSync(path.join(root, 'version.json'), 'utf8')).version } catch { /* 首次 */ }
+// 每次发布都必须更改版本号：即使 tag 读取失败也不沿用当前版本。
+if (`${prefix}.${next}` === current) next += 1
+const version = `${prefix}.${next}`
 const tag = `v${version}`
 
 let prevBuild = 0
@@ -79,14 +90,17 @@ function subjectNotes() {
   const added = []
   const fixed = []
   for (const s of subjects) {
+    // 发布编排提交不是功能变更，不进入对外文案。
     if (/\[skip ci\]|^chore\(release\)/i.test(s)) continue
-    const text = s.replace(/^(feat|fix|perf|refactor|docs|chore)(\([^)]*\))?!?:\s*/i, '').trim()
-    if (/^(feat|新增|add|支持)|\b新增\b/i.test(s)) added.push(text)
+    let text = s.replace(/^(feat|fix|perf|refactor|docs|chore)(\([^)]*\))?!?:\s*/i, '').trim()
+    text = text.replace(/\s+/g, ' ').slice(0, 48)
+    if (/^(feat|新增|add|支持)|\b新增\b|\b实现\b/i.test(s)) added.push(text)
     else if (/^(fix|修复|修正|hotfix)|\b修复\b|\b修正\b/i.test(s)) fixed.push(text)
   }
-  const uniq = (a) => [...new Set(a.filter(Boolean))].slice(0, 12)
+  const uniq = (a) => [...new Set(a.filter(Boolean))].slice(0, 6)
   const A = uniq(added)
   const F = uniq(fixed)
+  // 只有「新增 / 修复」两栏，无版本标题、无排错/核验/构建过程。
   const lines = ['## 新增', '']
   for (const x of (A.length ? A : ['无'])) lines.push(`- ${x}`)
   lines.push('', '## 修复', '')
