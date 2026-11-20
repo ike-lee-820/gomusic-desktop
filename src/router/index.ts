@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import PlayerWide from '../views/PlayerWide.vue'
 import Placeholder from '../views/Placeholder.vue'
+import UpdateDoc from '../views/UpdateDoc.vue'
+import { APP_VERSION, BUILD_NUMBER } from '../version'
 
 const page = (path: string, title: string, note: string) => ({
   path,
@@ -26,9 +28,9 @@ const router = createRouter({
     page('/settings', '设置', '播放 / 网络 / 外观 / 内容 / 桌面专属 / 不适用项'),
     page('/recorder', '录制视频', '预览即成品：同一 RecRenderer canvas；三段式进度'),
     page('/record-list', '录制列表', '进行中置顶 + 历史倒序，进度三处同步'),
-    page('/update-doc', '更新说明', 'markdown-it + DOMPurify，离线完整，仅「修复 / 新增」'),
+    { path: '/update-doc', component: UpdateDoc, meta: { title: '更新说明', standalone: true } },
     page('/login', '登录 / 验证', '卡片宽 420 居中；风控用系统浏览器打开验证页'),
-    page('/about', '关于', '版本 26.11.36 / 构建号 / 更新说明入口 / GitHub 链接'),
+    page('/about', '关于', `版本 ${APP_VERSION} / 构建号 ${BUILD_NUMBER} / 更新说明入口 / GitHub 链接`),
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

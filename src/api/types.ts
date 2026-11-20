@@ -35,6 +35,13 @@ export interface RecConfig {
 }
 export interface RecTask { id: string; state: string; phase: number; detail: string; percent: number; outputPath?: string | null; coverPath?: string | null; config: RecConfig }
 export interface RecProgress { phase: number; detail: string; percent: number; frame: number; total: number }
-export interface UpdateDoc { version: string; body: string }
+export interface UpdateDoc {
+  version: string
+  body: string
+  hasUpdate: boolean
+  downloadUrl?: string | null
+  fallbackUrl?: string | null
+  publishedAt?: string | null
+}
 export interface Settings { [key: string]: unknown }
 export interface LoginState { logged: boolean; userId?: number; nickname?: string; avatarUrl?: string }

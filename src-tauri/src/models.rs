@@ -157,7 +157,14 @@ pub struct RecProgress {
 pub struct UpdateDoc {
     pub version: String,
     pub body: String,
+    pub has_update: bool,
+    pub download_url: Option<String>,
+    pub fallback_url: Option<String>,
+    pub published_at: Option<String>,
 }
+
+/// 离线完整更新说明，与 docs/release-notes/<版本>.md、Release 正文同源。
+pub const OFFLINE_CHANGELOG: &str = include_str!("../resources/CHANGELOG.md");
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

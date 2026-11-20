@@ -8,7 +8,7 @@ use crate::state::AppState;
 
 type R<T> = Result<T, String>;
 
-const CHANGELOG: &str = include_str!("../../resources/CHANGELOG.md");
+// 离线说明统一由 models::OFFLINE_CHANGELOG 提供，与 Release 正文逐字一致。
 
 fn stub(name: &str) { info!(target: "gomusic::stub", "{} -> pending backend integration", name); }
 
@@ -69,8 +69,8 @@ pub async fn login(state: State<'_, AppState>, phone: String, captcha: Option<St
 #[tauri::command]
 pub async fn open_verify(verify_url: String) -> R<()> {
     info!(target: "gomusic::verify", "open risk verification in system browser: {}", verify_url);
-    // 系统默认浏览器打开（tauri-plugin-opener），滑块必须在真实浏览器过，不内嵌。
-    Ok(())
+    // 系统默认浏览器打开，滑块必须在真实浏览器过，不内嵌。
+    tauri_plugin_opener::open_url(&verify_url, None::<&str>).map_err(|e| e.to_string())
 }
 
 // ── 播放引擎 ────────────────────────────────────────────────
@@ -141,7 +141,11 @@ pub async fn image_save(state: State<'_, AppState>, url: String, name: String) -
     tokio::fs::write(&path, &bytes).await.map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().to_string())
 }
-#[tauri::command] pub async fn open_external(target: String) -> R<()> { info!(target: "gomusic::opener", "{}", target); Ok(()) }
+#[tauri::command]
+pub async fn open_external(target: String) -> R<()> {
+    info!(target: "gomusic::opener", "{}", target);
+    tauri_plugin_opener::open_url(&target, None::<&str>).map_err(|e| e.to_string())
+}
 
 // ── 录制 ────────────────────────────────────────────────────
 #[tauri::command]
@@ -183,25 +187,16 @@ pub async fn rec_list(state: State<'_, AppState>) -> R<Vec<RecTask>> {
 // ── 更新 / 系统集成 ─────────────────────────────────────────
 #[tauri::command]
 pub async fn update_check(state: State<'_, AppState>, force: Option<bool>) -> R<UpdateDoc> {
-    info!(target: "gomusic::update", "check force={}", force.unwrap_or(false));
-    // §4.4：加速与直连两个候选都取，按长度取最完整；此处直连为基线实现。
-    let releases: Value = state.client
-        .get("https://api.github.com/repos/ike-lee-820/GoMusicForAndroid/releases?per_page=20")
-        .header("User-Agent", "GoMusicDesktop/26.11.36")
-        .send().await.map_err(|e| e.to_string())?
-        .json().await.map_err(|e| e.to_string())?;
-    if let Some(first) = releases.as_array().and_then(|a| a.first()) {
-        let body = first.get("body").and_then(Value::as_str).unwrap_or("").to_string();
-        if body.len() > 40 {
-            return Ok(UpdateDoc { version: first.get("tag_name").and_then(Value::as_str).unwrap_or("26.11.36").to_string(), body })
-        }
-    }
-    Ok(UpdateDoc { version: "26.11.36".into(), body: CHANGELOG.to_string() })
+    net::check_update(&state, force.unwrap_or(false)).await
 }
 #[tauri::command]
 pub async fn update_notes() -> R<UpdateDoc> {
-    // 内置 CHANGELOG.md，离线完整可读，与 Release 正文同源。
-    Ok(UpdateDoc { version: "26.11.36".into(), body: CHANGELOG.to_string() })
+    // 内置 CHANGELOG.md，离线完整可读，与 Release 正文逐字一致。
+    Ok(UpdateDoc {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        body: crate::models::OFFLINE_CHANGELOG.to_string(),
+        ..Default::default()
+    })
 }
 #[tauri::command]
 pub async fn file_assoc_status() -> R<Vec<String>> {

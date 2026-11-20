@@ -2,28 +2,83 @@ name: release
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      notes:
+        description: '自定义更新说明（留空则按提交自动生成，只保留新增/修复）'
+        required: false
+        type: string
 
 permissions:
   contents: write
 
 jobs:
-  publish:
-    name: ${{ matrix.platform }} / ${{ matrix.arch }}
+  version:
+    name: 编排版本号与更新文档
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      tag: ${{ steps.bump.outputs.tag }}
+      build: ${{ steps.bump.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 计算 yy.mm.次数 并改写全部版本文件
+        id: bump
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_NOTES: ${{ github.event.inputs.notes }}
+        run: node scripts/bump-version.mjs
+      - name: 提交版本号、更新文档并打 tag
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m "chore(release): ${VERSION} [skip ci]" || echo "版本号无变化"
+          git push origin HEAD:main
+          git tag -f "$TAG"
+          git push origin "$TAG"
+      - name: 创建 GitHub Release（正文即归档更新文档）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "GoMusic $VERSION" \
+            --notes-file "docs/release-notes/$VERSION.md" \
+            --latest
+
+  build:
+    name: 构建 ${{ matrix.platform }} / ${{ matrix.arch }}
+    needs: version
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { platform: windows-latest,   arch: x64,   target: 'x86_64-pc-windows-msvc',    args: '--target x86_64-pc-windows-msvc' }
-          - { platform: windows-11-arm,   arch: arm64, target: 'aarch64-pc-windows-msvc',   args: '--target aarch64-pc-windows-msvc' }
-          - { platform: macos-latest,     arch: arm64, target: 'aarch64-apple-darwin',      args: '--target aarch64-apple-darwin' }
-          - { platform: macos-13,         arch: x64,   target: 'x86_64-apple-darwin',      args: '--target x86_64-apple-darwin' }
-          - { platform: ubuntu-24.04,     arch: amd64, target: 'x86_64-unknown-linux-gnu', args: '--target x86_64-unknown-linux-gnu' }
-          - { platform: ubuntu-24.04-arm, arch: arm64, target: 'aarch64-unknown-linux-gnu', args: '--target aarch64-unknown-linux-gnu' }
+          - { platform: ubuntu-24.04,     arch: amd64, target: 'x86_64-unknown-linux-gnu',  bundles: 'deb,rpm,appimage', experimental: false }
+          - { platform: ubuntu-24.04-arm, arch: arm64, target: 'aarch64-unknown-linux-gnu', bundles: 'deb',              experimental: true  }
+          - { platform: windows-latest,   arch: x64,   target: 'x86_64-pc-windows-msvc',    bundles: 'nsis,msi',         experimental: false }
+          - { platform: windows-11-arm,   arch: arm64, target: 'aarch64-pc-windows-msvc',   bundles: 'nsis',             experimental: true  }
+          - { platform: macos-latest,     arch: arm64, target: 'aarch64-apple-darwin',      bundles: 'dmg',              experimental: false }
+          - { platform: macos-13,         arch: x64,   target: 'x86_64-apple-darwin',      bundles: 'dmg',              experimental: true  }
     runs-on: ${{ matrix.platform }}
+    continue-on-error: ${{ matrix.experimental }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -36,23 +91,49 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - run: npm install --no-audit --no-fund
-      - name: 生成全平台图标集
-        run: |
-          npx tauri icon src-tauri/icons/icon.png
-          node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.bundle.icon=['icons/32x32.png','icons/128x128.png','icons/icon.icns','icons/icon.ico'];fs.writeFileSync(p,JSON.stringify(j,null,2))"
-      - uses: tauri-apps/tauri-action@v0
+      - name: Tauri 构建（产出安装包）
+        id: build
+        continue-on-error: true
+        shell: bash
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: 构建降级重试（仅 Linux，退回 deb）
+        if: steps.build.outcome == 'failure' && runner.os == 'Linux'
+        shell: bash
+        run: npx tauri build --target ${{ matrix.target }} --bundles deb
+      - name: 非 Linux 构建失败则终止
+        if: steps.build.outcome == 'failure' && runner.os != 'Linux'
+        shell: bash
+        run: exit 1
+      - name: 收集产物与校验和
+        if: always()
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'GoMusic ${{ github.ref_name }}'
-          releaseDraft: true
-          args: ${{ matrix.args }}
+          SUMS: SHA256SUMS-${{ matrix.platform }}-${{ matrix.arch }}.txt
+        run: |
+          mkdir -p artifacts
+          find src-tauri/target -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) -exec cp -f {} artifacts/ \; 2>/dev/null || true
+          node -e "const fs=require('fs'),c=require('crypto'),p='artifacts',o=process.env.SUMS;const lines=fs.readdirSync(p).filter(f=>!f.startsWith('SHA256SUMS')).map(f=>c.createHash('sha256').update(fs.readFileSync(p+'/'+f)).digest('hex')+'  '+f);fs.writeFileSync(p+'/'+o,lines.join('\n')+(lines.length?'\n':''))"
+          ls -lh artifacts
       - name: 断言 Linux arm64 包架构
         if: matrix.arch == 'arm64' && runner.os == 'Linux'
+        shell: bash
         run: |
-          DEB=$(find src-tauri/target -name '*.deb' | head -1)
+          DEB=$(find artifacts -name '*.deb' | head -1)
           test -n "$DEB" || exit 1
           test "$(dpkg-deb -f "$DEB" Architecture)" = "arm64" || exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: GoMusic-${{ needs.version.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}
+          path: artifacts/
+          if-no-files-found: warn
+      - name: 上传安装包到 GitHub Release
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.version.outputs.tag }}
+        shell: bash
+        run: |
+          FILES=$(find artifacts -type f ! -name 'SHA256SUMS*' | head -1)
+          if [ -z "$FILES" ]; then echo "::warning::本平台无安装包产物"; exit 0; fi
+          gh release upload "$TAG" artifacts/* --clobber --repo "$GITHUB_REPOSITORY"

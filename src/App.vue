@@ -3,10 +3,13 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppTitleBar from './components/AppTitleBar.vue'
 import NavRail from './components/NavRail.vue'
+import UpdateToast from './components/UpdateToast.vue'
 import { usePlayerStore } from './stores/player'
+import { useUpdateStore } from './stores/update'
 
 const router = useRouter()
 const player = usePlayerStore()
+const update = useUpdateStore()
 const ctrl = ref<HTMLElement | null>(null)
 
 // §6.2.1 桌面增强：不改变视觉，仅键盘映射
@@ -26,7 +29,11 @@ function onKey(e: KeyboardEvent) {
   else if (e.key === 'ArrowRight') { player.positionMs += e.shiftKey ? 15000 : 5000 }
 }
 
-onMounted(() => window.addEventListener('keydown', onKey))
+onMounted(() => {
+  window.addEventListener('keydown', onKey)
+  // 应用启动自动检查更新：默认 gh-proxy 加速，403/超时自动回退直连，失败不阻断界面。
+  void update.check()
+})
 onUnmounted(() => window.removeEventListener('keydown', onKey))
 </script>
 
@@ -39,6 +46,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         <div class="content-inner"><router-view /></div>
       </main>
     </div>
+    <UpdateToast />
   </div>
 </template>
 

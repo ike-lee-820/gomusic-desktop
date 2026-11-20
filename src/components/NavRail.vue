@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { APP_VERSION, BUILD_NUMBER } from '../version'
+
 const items = [
   { to: '/', label: '播放', d: 'M8 5v14l11-7z' },
   { to: '/search', label: '搜索', d: 'M11 4a7 7 0 1 0 4.2 12.6L20 21l1.4-1.4-4.8-4.8A7 7 0 0 0 11 4zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10z' },
@@ -20,7 +22,7 @@ const items = [
         <span class="label">{{ it.label }}</span>
       </router-link>
     </div>
-    <span class="ver tabular">26.11.36</span>
+    <span class="ver tabular" :title="`构建号 ${BUILD_NUMBER}`">{{ APP_VERSION }}</span>
   </nav>
 </template>
 

@@ -49,9 +49,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: JSON 配置合法性
+      - name: JSON 配置与版本一致性
         run: |
-          node -e "for (const f of ['package.json','src-tauri/tauri.conf.json','src-tauri/capabilities/default.json']) { JSON.parse(require('fs').readFileSync(f,'utf8')); console.log('ok', f) }"
+          node -e "
+            const fs=require('fs');
+            for (const f of ['package.json','src-tauri/tauri.conf.json','src-tauri/capabilities/default.json','version.json']) JSON.parse(fs.readFileSync(f,'utf8'));
+            const v=JSON.parse(fs.readFileSync('version.json','utf8')).version;
+            const p=JSON.parse(fs.readFileSync('package.json','utf8')).version;
+            const t=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8')).version;
+            const c=/^version = \"(.*)\"$/m.exec(fs.readFileSync('src-tauri/Cargo.toml','utf8'))[1];
+            const ts=/APP_VERSION = '(.*)'/.exec(fs.readFileSync('src/version.ts','utf8'))[1];
+            const set=[v,p,t,c,ts];
+            if (new Set(set).size !== 1) { console.error('版本不一致', set); process.exit(1) }
+            console.log('版本一致:', v);
+          "
       - name: 凭据泄漏扫描
         run: |
           if git grep -nE 'ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}' -- . ':!docs' ; then

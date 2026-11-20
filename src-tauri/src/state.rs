@@ -17,7 +17,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> anyhow::Result<Self> {
         let client = Client::builder()
-            .user_agent("GoMusicDesktop/26.11.36")
+            .user_agent(concat!("GoMusicDesktop/", env!("CARGO_PKG_VERSION")))
             .timeout(std::time::Duration::from_secs(15))
             .cookie_store(true)
             .build()?;
