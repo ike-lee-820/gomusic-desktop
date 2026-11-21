@@ -1,6 +1,6 @@
 [package]
 name = "gomusic-desktop"
-version = "26.11.3"
+version = "26.11.4"
 description = "GoMusic desktop client"
 authors = ["ike-lee-820"]
 edition = "2021"
