@@ -24,9 +24,15 @@ function pubkeyKeynum(pubkey) {
   if (b.length < 10) return ''
   return b.subarray(2, 10).toString('hex')
 }
-/** minisign 签名 .sig：首行 untrusted comment，第二行 base64 -> "ED" + keynum(8) + sig(64)。 */
+/** Tauri 生成的 .sig 是「外层 base64 包装的 minisign 文本」；解开后签名行为 "ED" + keynum(8) + sig(64)。 */
 function sigKeynum(text) {
-  const line = text.trim().split('\n')
+  let body = text.trim()
+  // 外层 base64：解开后应得到含 untrusted/trusted comment 的文本
+  try {
+    const outer = Buffer.from(body, 'base64').toString('utf8')
+    if (outer.includes('untrusted comment') || outer.includes('trusted comment')) body = outer
+  } catch { /* 已是明文 minisign 文本 */ }
+  const line = body.split('\n')
     .map((l) => l.trim())
     .find((l) => l && !l.startsWith('untrusted comment') && !l.startsWith('trusted comment'))
   if (!line) return ''
@@ -42,7 +48,7 @@ try {
 } catch { /* 配置不可读时仅跳过配对校验 */ }
 notice(`updater 公钥 keynum=${expectedKeynum || '(未知)'}`)
 
-const priority = ['.nsis.zip', '.msi.zip', '.app.tar.gz', '.AppImage.tar.gz', '.AppImage']
+const priority = ['.app.tar.gz', '.nsis.zip', '.msi.zip', '.AppImage.tar.gz', '.AppImage', '.exe', '.msi', '.deb', '.rpm']
 const score = (f) => {
   const i = priority.findIndex((x) => f.endsWith(`${x}.sig`))
   return i === -1 ? 99 : i

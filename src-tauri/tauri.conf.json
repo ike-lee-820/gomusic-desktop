@@ -151,7 +151,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "RWTGMoFrnVspeyjNNBfeDqot8gNhq70MzwqxKpYurxMZpT6D3M2iQiNK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhCM0QwN0Q1NzE3M0YzOEIKUldTTDgzTngxUWM5aTN1dm1xOFYwNjZYQTBySHEzMURrbmsxSlZEbkFuQVV6Q0lVSVQvOXRDaUYK",
       "endpoints": [
         "https://gh-proxy.com/https://github.com/ike-lee-820/gomusic-desktop/releases/latest/download/latest.json",
         "https://github.com/ike-lee-820/gomusic-desktop/releases/latest/download/latest.json"
