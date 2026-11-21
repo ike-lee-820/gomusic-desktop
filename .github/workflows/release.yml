@@ -131,7 +131,7 @@ jobs:
           SUMS: SHA256SUMS-${{ matrix.platform }}-${{ matrix.arch }}.txt
         run: |
           mkdir -p artifacts
-          find src-tauri/target -path '*/bundle/*' -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.AppImage.tar.gz' -o -name '*.nsis.zip' -o -name '*.msi.zip' -o -name '*.app.tar.gz' -o -name '*.tar.gz' -o -name '*.zip' -o -name '*.sig' \) -exec cp -f {} artifacts/ \; 2>/dev/null || true
+          find src-tauri/target -path '*/bundle/*' -type f ! -name 'control.tar.gz' ! -name 'data.tar.gz' \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.AppImage.tar.gz' -o -name '*.nsis.zip' -o -name '*.msi.zip' -o -name '*.app.tar.gz' -o -name '*.zip' -o -name '*.sig' \) -exec cp -f {} artifacts/ \; 2>/dev/null || true
           node -e "const fs=require('fs'),c=require('crypto'),p='artifacts',o=process.env.SUMS;const lines=fs.readdirSync(p).filter(f=>!f.startsWith('SHA256SUMS')).map(f=>c.createHash('sha256').update(fs.readFileSync(p+'/'+f)).digest('hex')+'  '+f);fs.writeFileSync(p+'/'+o,lines.join('\n')+(lines.length?'\n':''))"
           ls -lh artifacts
       - name: 断言 Linux arm64 包架构

@@ -18,9 +18,17 @@ let notes = ''
 try { notes = fs.readFileSync(path.join(root, 'docs/release-notes', `${version}.md`), 'utf8').trim() } catch { /* 离线兜底 */ }
 if (!notes) notes = '## 新增\n\n- 无\n\n## 修复\n\n- 无'
 
-/** minisign 公钥：base64 -> "Ed" + keynum(8) + pk(32)。 */
+/** tauri.conf.json 的 pubkey 是「base64 包装后的 minisign 公钥文本」；解开取末行公钥，再解出 "Ed" + keynum(8) + pk(32)。 */
 function pubkeyKeynum(pubkey) {
-  const b = Buffer.from(pubkey, 'base64')
+  let text = pubkey.trim()
+  try {
+    const outer = Buffer.from(text, 'base64').toString('utf8')
+    if (outer.includes('minisign public key')) text = outer
+  } catch { /* 已是裸公钥 base64 */ }
+  const line = text.split('\n').map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('untrusted') && !l.startsWith('trusted')).pop()
+  if (!line) return ''
+  const b = Buffer.from(line, 'base64')
   if (b.length < 10) return ''
   return b.subarray(2, 10).toString('hex')
 }
