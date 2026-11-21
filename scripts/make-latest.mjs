@@ -1,6 +1,6 @@
 /**
  * 汇总各平台 CI 产出的 updater 包及其 minisign 签名，生成 Tauri 2 updater 的 latest.json。
- * 未签名的平台不写入清单，保证「未签名更新会被拒绝」。
+ * 未签名、签名与公钥不配对、或对应包缺失的平台一律不写入，保证「未签名更新会被拒绝」。
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -11,9 +11,36 @@ const repo = process.env.GITHUB_REPOSITORY || 'ike-lee-820/gomusic-desktop'
 const root = process.cwd()
 const base = path.join(root, 'all-artifacts')
 
+const notice = (m) => console.log(`::notice::${m}`)
+const warn = (m) => console.log(`::warning::${m}`)
+
 let notes = ''
 try { notes = fs.readFileSync(path.join(root, 'docs/release-notes', `${version}.md`), 'utf8').trim() } catch { /* 离线兜底 */ }
 if (!notes) notes = '## 新增\n\n- 无\n\n## 修复\n\n- 无'
+
+/** minisign 公钥：base64 -> "Ed" + keynum(8) + pk(32)。 */
+function pubkeyKeynum(pubkey) {
+  const b = Buffer.from(pubkey, 'base64')
+  if (b.length < 10) return ''
+  return b.subarray(2, 10).toString('hex')
+}
+/** minisign 签名 .sig：首行 untrusted comment，第二行 base64 -> "ED" + keynum(8) + sig(64)。 */
+function sigKeynum(text) {
+  const line = text.trim().split('\n')
+    .map((l) => l.trim())
+    .find((l) => l && !l.startsWith('untrusted comment') && !l.startsWith('trusted comment'))
+  if (!line) return ''
+  const b = Buffer.from(line, 'base64')
+  if (b.length < 10) return ''
+  return b.subarray(2, 10).toString('hex')
+}
+
+let expectedKeynum = ''
+try {
+  const conf = JSON.parse(fs.readFileSync(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8'))
+  expectedKeynum = pubkeyKeynum(conf.plugins.updater.pubkey)
+} catch { /* 配置不可读时仅跳过配对校验 */ }
+notice(`updater 公钥 keynum=${expectedKeynum || '(未知)'}`)
 
 const priority = ['.nsis.zip', '.msi.zip', '.app.tar.gz', '.AppImage.tar.gz', '.AppImage']
 const score = (f) => {
@@ -31,25 +58,38 @@ function platformKey(dirName) {
 }
 
 const platforms = {}
+const seen = []
 if (fs.existsSync(base)) {
   for (const dir of fs.readdirSync(base)) {
     const p = path.join(base, dir)
     if (!fs.statSync(p).isDirectory()) continue
     const key = platformKey(dir)
-    if (!key || platforms[key]) continue
-    const sigs = fs.readdirSync(p).filter((f) => f.endsWith('.sig')).sort((a, b) => score(a) - score(b))
+    const files = fs.readdirSync(p)
+    const sigs = files.filter((f) => f.endsWith('.sig')).sort((a, b) => score(a) - score(b))
+    seen.push(`${dir}: sig=[${sigs.join(',')}] key=${key || '-'}`)
+    if (!key || platforms[key] || !sigs.length) continue
     const chosen = sigs[0]
-    if (!chosen) continue
     const signature = fs.readFileSync(path.join(p, chosen), 'utf8').trim()
     if (!signature) continue
     const asset = chosen.slice(0, -4)
+    // 对应的 updater 包必须一并上传，否则客户端下载 404。
+    if (!files.includes(asset)) { warn(`${key}: 缺少包 ${asset}，跳过`); continue }
+    const kn = sigKeynum(signature)
+    if (expectedKeynum && kn && kn !== expectedKeynum) {
+      warn(`${key}: 签名 keynum=${kn} 与公钥 ${expectedKeynum} 不配对，跳过`)
+      continue
+    }
+    notice(`${key}: ${asset} keynum=${kn || '?'}`)
     platforms[key] = {
       signature,
       url: `https://github.com/${repo}/releases/download/${tag}/${asset}`,
     }
   }
 }
+for (const s of seen) notice(`artifact ${s}`)
 
 const out = { version, notes, pub_date: new Date().toISOString(), platforms }
 fs.writeFileSync(path.join(root, 'latest.json'), JSON.stringify(out, null, 2) + '\n')
-console.log('latest.json platforms:', Object.keys(platforms).join(', ') || '(none)')
+const keys = Object.keys(platforms)
+notice(`latest.json 平台数=${keys.length}: ${keys.join(', ') || '(空)'}`)
+if (!keys.length) warn('没有任何已签名平台，签名安装将不可用；请检查 TAURI_SIGNING_PRIVATE_KEY 与公钥是否配对')
