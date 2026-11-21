@@ -113,12 +113,13 @@ jobs:
         if: always()
         shell: bash
         run: |
+          set +e
           if [ -f tauri-build.log ]; then
             grep -E 'error\[|^error:|could not compile|failed to|Error |No such|not found|signature|signing' tauri-build.log | head -40 | while IFS= read -r line; do
               printf '::error::%s\n' "$(printf '%s' "$line" | cut -c1-500 | tr '\n' ' ')"
             done
           fi
-          true
+          exit 0
       - name: 非 Linux 构建失败则终止
         if: steps.build.outcome == 'failure' && runner.os != 'Linux'
         shell: bash

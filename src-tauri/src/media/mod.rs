@@ -28,12 +28,12 @@ impl MediaBridge {
             };
             let mut controls = match MediaControls::new(config) {
                 Ok(c) => Some(c),
-                Err(e) => { warn!(target: "gomusic::media", "unavailable: {}", e); None }
+                Err(e) => { warn!(target: "gomusic::media", "unavailable: {:?}", e); None }
             };
             if let Some(c) = controls.as_mut() {
                 let sender = etx.clone();
                 if let Err(e) = c.attach(move |ev| { let _ = sender.send(ev); }) {
-                    warn!(target: "gomusic::media", "attach: {}", e);
+                    warn!(target: "gomusic::media", "attach: {:?}", e);
                 } else {
                     info!(target: "gomusic::media", "souvlaki media controls attached");
                 }

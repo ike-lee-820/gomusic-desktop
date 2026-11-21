@@ -50,10 +50,11 @@ jobs:
         if: failure()
         shell: bash
         run: |
+          set +e
           grep -E 'error\[|^error:|could not compile|no matching package|failed to (run|build|download)|cannot find' cargo-check.log | head -45 | while IFS= read -r line; do
             printf '::error::%s\n' "$(printf '%s' "$line" | cut -c1-500 | tr '\n' ' ')"
           done
-          true
+          exit 0
 
 
   verify:
